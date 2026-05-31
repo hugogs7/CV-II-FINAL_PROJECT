@@ -1,0 +1,1370 @@
+CONTEXTO DEFINITIVO DEL PROYECTO FINAL — COMPUTER VISION II, 2ª PARTE
+Máster en Inteligencia Artificial — USC
+Proyecto: Video-based Head Pose Estimation under Fisheye Distortion
+Autores del trabajo: Hugo García Souto y Adrián Martínez Balea
+Estado del documento: resumen completo para continuar el proyecto
+Fecha aproximada: final de mayo de 2026
+
+================================================================================
+0. OBJETIVO DE ESTE ARCHIVO
+================================================================================
+
+Este archivo sirve para pasar el testigo del proyecto a Adrián o a cualquier IA que continúe el trabajo. Resume:
+
+1. La idea del proyecto y cómo evolucionó.
+2. Los papers y datasets usados.
+3. El estado actual del notebook.
+4. Los resultados principales obtenidos.
+5. Las decisiones metodológicas importantes.
+6. Las conclusiones interpretativas.
+7. Qué revisar y qué hacer a continuación.
+
+================================================================================
+1. CONTEXTO DE LA ASIGNATURA Y REQUISITOS DEL PROYECTO
+================================================================================
+
+El proyecto pertenece a la segunda parte de Computer Vision II. La guía del proyecto pide simular un mini trabajo de investigación, no simplemente entrenar un modelo.
+
+Requisitos clave:
+
+- Elegir un dominio de la guía.
+- Leer literatura reciente y surveys.
+- Identificar un problema abierto.
+- Formular una pregunta de investigación.
+- Elegir una arquitectura justificada técnicamente.
+- Compararla con al menos una alternativa considerada y rechazada.
+- Implementar un pipeline reproducible en Kaggle.
+- Usar un modelo preentrenado o público si es necesario.
+- Evaluar con al menos dos métricas cuantitativas en test.
+- Hacer análisis de fallos.
+- Opcionalmente implementar una modificación motivada por los fallos.
+- Escribir un informe de unas 5–6 páginas sin contar referencias.
+
+Dominio elegido:
+
+    Domain D — Gaze and Pose-Based Interaction.
+
+Subtema final:
+
+    Video-based head pose estimation.
+
+La razón de usar vídeo es que esta segunda parte de la asignatura está más relacionada con video/tracking. Por eso, aunque el modelo se aplica frame a frame, el análisis se centra también en estabilidad temporal, jitter y post-procesado.
+
+================================================================================
+2. FORMULACIÓN FINAL DEL PROYECTO
+================================================================================
+
+Título sugerido del notebook:
+
+    Temporal Stability of 6D Head Pose Estimation on BIWI-360 Video Sequences
+
+Título alternativo para informe:
+
+    Robustness and Temporal Stability of 6D Head Pose Estimation under Fisheye Distortion
+
+Research question final:
+
+    Can a frame-by-frame 6D head pose estimator remain accurate and temporally stable on BIWI-360 video sequences, and can temporal post-processing reduce prediction jitter under fisheye distortion?
+
+Hipótesis inicial:
+
+    A frame-by-frame 6D rotation model should provide a geometrically meaningful estimate of head orientation because its output representation respects the structure of 3D rotations. However, when applied independently to each frame, predictions may show temporal jitter, especially under fisheye distortion and challenging poses. Temporal post-processing is expected to reduce jitter, although it may introduce lag during fast rotations.
+
+Durante el proyecto, la hipótesis fue refinándose: el problema no es solo jitter temporal, sino también un fuerte cambio de dominio por la distorsión fisheye frame-wise.
+
+================================================================================
+3. PAPERS IMPORTANTES Y PAPEL DE CADA UNO
+================================================================================
+
+3.1. Paper base: 6DRepNet
+
+Paper:
+
+    Thorsten Hempel, Ahmed A. Abdelrahman, Ayoub Al-Hamadi.
+    “6D Rotation Representation For Unconstrained Head Pose Estimation”.
+    ICIP 2022.
+
+Papel en el proyecto:
+
+- Justifica la arquitectura principal.
+- Propone predecir una representación 6D de rotación.
+- La representación 6D se convierte a una matriz de rotación mediante Gram-Schmidt.
+- Usa geodesic loss sobre SO(3).
+- Es landmark-free, lo que evita depender de landmarks faciales, que pueden fallar con oclusiones, perfiles o poses extremas.
+
+Puntos relevantes:
+
+- Euler angles pueden ser discontinuos y sufrir problemas de representación.
+- Quaternion tiene ambigüedad antipodal.
+- La matriz de rotación es más adecuada, pero 9 parámetros son redundantes.
+- 6DRepNet usa los dos primeros vectores de la matriz y reconstruye el tercero.
+
+3.2. Paper usado en práctica: 6DRepNet360
+
+Paper:
+
+    Thorsten Hempel, Ahmed A. Abdelrahman, Ayoub Al-Hamadi.
+    “Toward Robust and Unconstrained Full Range of Rotation Head Pose Estimation”.
+    IEEE Transactions on Image Processing, 2024.
+
+Repositorio usado:
+
+    https://github.com/thohemp/6DRepNet360
+
+Checkpoint usado:
+
+    6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth
+
+Papel en el proyecto:
+
+- Es la versión más reciente y full-range de la línea 6DRepNet.
+- Está entrenada con 300W-LP + CMU Panoptic.
+- Permite justificar que se usa una arquitectura reciente y con soporte público.
+- El modelo se aplica frame a frame sobre BIWI-360.
+
+3.3. Paper metodológico: Cobo et al. 2024
+
+Paper:
+
+    Alejandro Cobo, Roberto Valle, José M. Buenaposada, Luis Baumela.
+    “On the representation and methodology for wide and short range head pose estimation”.
+    Pattern Recognition, 2024.
+
+Papel en el proyecto:
+
+- Justifica la importancia de la representación de rotación.
+- Distingue short-range y wide-range head pose estimation.
+- Explica problemas con Euler/MAE y la utilidad de métricas geodésicas.
+- Sirve para discutir limitaciones metodológicas de evaluar con Euler MAE.
+
+3.4. Paper HPE-360 / fisheye
+
+Dataset asociado:
+
+    HPE-360: fisheye-distorted version of BIWI, AFLW2000 and 300W-LP.
+
+Paper citado en README:
+
+    Li et al. 2024, “Location-guided Head Pose Estimation for Fisheye Image”.
+
+Papel en el proyecto:
+
+- Justifica que el dataset no es arbitrario.
+- Introduce el problema de head pose bajo distorsión fisheye.
+- El dataset genera versiones fisheye de benchmarks conocidos.
+- Cada imagen tiene metadata de distorsión: rho y theta.
+
+================================================================================
+4. DATASET PRINCIPAL: HPE-360 / BIWI-360
+================================================================================
+
+Dataset usado en Kaggle:
+
+    /kaggle/input/datasets/nn1966/hpe-360/HPE-360/HPE-360/
+
+Subdataset principal:
+
+    BIWI-360
+
+Estructura:
+
+    BIWI-360/
+        01/
+            frame_00003_rgb.png
+            frame_00004_rgb.png
+            ...
+        02/
+        ...
+        24/
+        label01_planB.mat
+        label02_planB.mat
+        ...
+        label24_planB.mat
+
+BIWI-360 conserva 24 secuencias, como BIWI original.
+
+Número total de frames cargados:
+
+    15,678 frames
+
+Tabla frame-level construida:
+
+    shape = (15678, 8)
+
+Columnas:
+
+    sequence_id
+    frame_id
+    image_path
+    yaw
+    roll
+    pitch
+    rho
+    theta
+
+Resumen global de metadata y pose:
+
+    yaw mean ≈ 7.92, std ≈ 29.90, min ≈ -74.89, max ≈ 77.97
+    roll mean ≈ 0.07, std ≈ 13.29, min ≈ -64.70, max ≈ 45.02
+    pitch mean ≈ 9.26, std ≈ 25.79, min ≈ -63.83, max ≈ 84.37
+    rho mean ≈ 0.40, range ≈ [0, 0.8]
+    theta range ≈ [-180, 180]
+
+Importante sobre HPE-360:
+
+- Las etiquetas yaw/roll/pitch son las originales del dataset base.
+- Las imágenes están distorsionadas con fisheye.
+- Según README, para generar cada imagen se coloca la cara en una posición polar P=(rho, theta) sobre un canvas y se aplica una transformación fisheye.
+- rho es la posición radial normalizada, entre 0 y 0.8.
+- theta es el ángulo polar de la posición de la cara.
+- El ground truth de pose no cambia aunque visualmente la distorsión altere mucho la apariencia.
+
+Esto fue una fuente de discusión importante: entre frames consecutivos puede mantenerse pose similar, pero variar mucho la distorsión fisheye. Por eso la tarea es muy difícil para un modelo frame-by-frame entrenado en imágenes no fisheye.
+
+================================================================================
+5. OBSERVACIONES SOBRE LA DISTORSIÓN FISHEYE
+================================================================================
+
+Se observaron imágenes con:
+
+- Caras fuertemente deformadas.
+- Zonas negras por padding/canvas tras la transformación.
+- Un solo ojo visible o geometría facial muy alterada.
+- Cambios grandes de rho/theta entre frames consecutivos.
+
+Análisis hecho:
+
+- Se calcularon diferencias frame-to-frame de ground truth.
+- Se calculó movimiento real por pares consecutivos.
+- Se detectaron eventos de alto movimiento.
+- Se vio que los cambios de rho/theta entre frames pueden ser muy grandes.
+
+Pares consecutivos totales:
+
+    15,628 pares consecutivos reales.
+
+Motion thresholds usados:
+
+    motion q75 ≈ 2.535
+    motion q90 ≈ 3.914
+
+Fisheye-change thresholds:
+
+    fisheye-change q75 ≈ 0.867
+    fisheye-change q90 ≈ 0.996
+
+Conclusión metodológica:
+
+- No basta con pensar en vídeo como pose suave en el tiempo.
+- En BIWI-360, puede haber una señal temporal de pose, pero la distorsión fisheye cambia mucho frame a frame.
+- Esto rompe la suposición de que frames consecutivos deberían ser visualmente consistentes.
+
+================================================================================
+6. PIPELINE PRINCIPAL DEL NOTEBOOK
+================================================================================
+
+6.1. Setup
+
+Entorno usado:
+
+    Kaggle
+    Python 3.12.13
+    PyTorch 2.10.0+cu128
+    GPU: Tesla T4
+    CUDA available: True
+
+Se comprobó internet:
+
+    GitHub reachable: True
+    Weights URL reachable: True
+
+Repositorio clonado:
+
+    /kaggle/working/external/6DRepNet360
+
+Commit:
+
+    b06e4fed77f802fbf05319b85bb65215087d5c7a
+
+6.2. Modelo
+
+Se importó el código del repo:
+
+    sixdrepnet360/test.py
+    sixdrepnet360/utils.py
+
+Modelo creado:
+
+    SixDRepNet360(torchvision.models.resnet.Bottleneck, [3,4,6,3], 6)
+
+Parámetros:
+
+    total parameters: 23,520,326
+    trainable parameters: 23,520,326
+
+Checkpoint descargado:
+
+    https://cloud.ovgu.de/s/TewGC9TDLGgKkmS/download/6DRepNet360_Full-Rotation_300W_LP+Panoptic.pth
+
+Peso cargado correctamente:
+
+    Missing keys: []
+    Unexpected keys: []
+
+6.3. Convención de ángulos
+
+El repo devuelve Euler en orden:
+
+    euler[:, 0] = pitch
+    euler[:, 1] = yaw
+    euler[:, 2] = roll
+
+En el notebook se mapearon correctamente a:
+
+    pred_pitch = euler_deg[:, 0]
+    pred_yaw   = euler_deg[:, 1]
+    pred_roll  = euler_deg[:, 2]
+
+Se hizo diagnóstico de permutaciones y signos para BIWI-360 y AFLW2000-3D.
+
+Mejor convención en ambos casos:
+
+    pred_yaw -> yaw
+    pred_roll -> roll
+    pred_pitch -> pitch
+    signs = +1, +1, +1
+
+Esto descarta que los resultados malos vengan de un error simple de convención de ángulos.
+
+================================================================================
+7. SPLIT DE VALIDATION Y TEST
+================================================================================
+
+Se dividió por secuencias, no por frames, para evitar leakage temporal.
+
+All sequences:
+
+    [1, 2, 3, ..., 24]
+
+Validation sequences:
+
+    [4, 10, 16, 22]
+
+Test sequences:
+
+    [1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24]
+
+Frame counts:
+
+    validation: 3049 frames
+    test: 12629 frames
+
+Consecutive temporal-pair counts:
+
+    validation: 3043 pairs
+    test: 12585 pairs
+
+Uso del validation:
+
+- Seleccionar hiperparámetros de post-procesado temporal.
+- Seleccionar alpha de EMA.
+- Seleccionar filtros robustos en Appendix C.
+- Calcular validation-mean baseline.
+
+Test se usa solo para evaluación final.
+
+================================================================================
+8. RESULTADO PRINCIPAL ZERO-SHOT 6DRepNet360 EN BIWI-360
+================================================================================
+
+Frame-level accuracy metrics:
+
+Validation:
+
+    mae_yaw   = 16.3895
+    mae_roll  = 21.8853
+    mae_pitch = 31.8018
+    mean_mae  = 23.3589
+    mean_rmse = 40.5071
+
+Test:
+
+    mae_yaw   = 16.9930
+    mae_roll  = 21.1325
+    mae_pitch = 29.6633
+    mean_mae  = 22.5963
+    mean_rmse = 39.4855
+
+Test error distribution:
+
+    err_mean mean   = 22.5963
+    err_mean median = 11.7743
+    err_mean q75    = 21.8471
+    err_mean max    = 150.2548
+
+Interpretación:
+
+- El MAE medio global es alto.
+- La mediana es bastante menor, lo que indica outliers fuertes.
+- El modelo falla especialmente en roll y pitch.
+- Yaw es el eje donde el modelo más aporta señal.
+
+================================================================================
+9. MÉTRICAS TEMPORALES RAW
+================================================================================
+
+Métricas temporales raw en test:
+
+    mean_gt_motion = 2.0673
+    mean_pred_jitter = 44.2736
+    mean_temporal_motion_error = 44.2726
+
+Por motion level en test:
+
+    high motion:   raw jitter ≈ 60.43
+    medium motion: raw jitter ≈ 53.82
+    low motion:    raw jitter ≈ 40.10
+
+Por fisheye-change level en test:
+
+    high fisheye-change:   raw jitter ≈ 49.56
+    medium fisheye-change: raw jitter ≈ 44.53
+    low fisheye-change:    raw jitter ≈ 43.51
+
+Conclusión:
+
+- Las predicciones raw son extremadamente inestables temporalmente.
+- El jitter del modelo es muchísimo mayor que el movimiento real de la cabeza.
+
+================================================================================
+10. EMA SMOOTHING PRINCIPAL
+================================================================================
+
+Se probó EMA con distintos alpha en validation.
+
+Alpha seleccionado inicialmente:
+
+    best_alpha = 0.05
+
+Criterio inicial:
+
+    minimizar temporal motion error en validation.
+
+Resultados test raw vs EMA:
+
+Frame-level:
+
+    raw mean MAE    = 22.5963
+    smooth mean MAE = 26.5798
+    delta           = +3.9836
+
+Temporal:
+
+    raw mean jitter       = 44.2736
+    smooth mean jitter    = 4.0921
+    jitter reduction      = 90.76%
+
+    raw temporal error    = 44.2726
+    smooth temporal error = 4.5949
+    reduction             = 89.62%
+
+Conclusión:
+
+- EMA reduce muchísimo el jitter.
+- EMA empeora el MAE frame-level.
+- Esto confirma el trade-off esperado: estabilidad temporal vs lag/pérdida de precisión instantánea.
+- EMA simple no es suficiente para resolver el problema.
+
+================================================================================
+11. APPENDIX A — SANITY CHECK AFLW2000-3D
+================================================================================
+
+Motivo:
+
+Los resultados en BIWI-360 eran muy malos, así que se quiso comprobar si el pipeline/modelo estaba roto. Para ello se evaluó el mismo modelo en AFLW2000-3D no fisheye.
+
+Dataset añadido en Kaggle:
+
+    /kaggle/input/datasets/mohamedadlyi/aflw2000-3d/AFLW2000
+
+Archivos:
+
+    2000 .jpg
+    2000 .mat
+
+Cada .mat contiene:
+
+    Pose_Para shape = (1, 7)
+
+Interpretación usada:
+
+    Pose_Para[0,0] = pitch rad
+    Pose_Para[0,1] = yaw rad
+    Pose_Para[0,2] = roll rad
+
+Se convirtieron a grados y se hizo wrapping a [-180, 180).
+
+Preprocesado:
+
+- Se usó crop facial basado en pt2d.
+- Luego transform estándar del modelo.
+
+Resultados AFLW2000-3D:
+
+All samples:
+
+    num_frames = 2000
+    mae_yaw   = 5.4767
+    mae_roll  = 5.8668
+    mae_pitch = 7.8229
+    mean_mae  = 6.3888
+    mean_rmse = 16.5749
+
+Con filtro ±99°:
+
+    frames within ±99° = 1969
+    frames removed = 31
+    mae_yaw   = 5.3186
+    mae_roll  = 5.1030
+    mae_pitch = 7.2209
+    mean_mae  = 5.8808
+    mean_rmse = 14.6636
+
+Comparación BIWI-360 vs AFLW2000-3D:
+
+BIWI-360 fisheye test:
+
+    mean_mae = 22.5963
+
+AFLW2000-3D non-fisheye:
+
+    mean_mae = 6.3888 all samples
+    mean_mae = 5.8808 within ±99°
+
+Relative increase from AFLW2000-3D to BIWI-360:
+
+    ≈ 253.69% using all AFLW2000-3D samples.
+
+Conclusión Appendix A:
+
+- El pipeline de inferencia no está roto.
+- La convención de ángulos es correcta.
+- El mismo modelo funciona razonablemente en imágenes no fisheye.
+- El problema principal en BIWI-360 es el cambio de dominio por distorsión fisheye y la variación geométrica frame-wise.
+
+================================================================================
+12. APPENDIX B — SENSITIVITY ANALYSIS Y BASELINES
+================================================================================
+
+Objetivo:
+
+Entender por qué BIWI-360 sale tan mal y no quedarse solo con el resultado global.
+
+B.0. Official reference metrics
+
+Test frames:
+
+    12629
+
+Frames with at least one extreme raw predicted angle:
+
+    659
+
+Extreme raw angle rate:
+
+    5.218%
+
+Official reference:
+
+    raw mean MAE = 22.5963
+    EMA mean MAE = 26.5798
+    raw jitter = 44.2736
+    EMA jitter = 4.0921
+    raw temporal error = 44.2726
+    EMA temporal error = 4.5949
+
+B.1. Error by rho level
+
+rho split:
+
+    low rho:    [0, 0.2666]
+    medium rho: [0.2666, 0.5333]
+    high rho:   [0.5333, 0.8]
+
+Resultados test:
+
+Low rho:
+
+    num_frames = 4272
+    mean_rho = 0.1335
+    raw_mean_mae = 18.8534
+    smooth_mean_mae = 26.1632
+    extreme_raw_angle_rate = 4.026%
+
+Medium rho:
+
+    num_frames = 4158
+    mean_rho = 0.4015
+    raw_mean_mae = 20.6327
+    smooth_mean_mae = 27.1361
+    extreme_raw_angle_rate = 3.944%
+
+High rho:
+
+    num_frames = 4199
+    mean_rho = 0.6653
+    raw_mean_mae = 28.3486
+    smooth_mean_mae = 26.4528
+    extreme_raw_angle_rate = 7.692%
+
+Interpretación:
+
+- El error raw aumenta claramente con rho.
+- High rho produce más outliers extremos.
+- EMA empeora low/medium rho pero mejora ligeramente high rho.
+- Esto apoya que la distorsión fisheye es una causa central del fallo.
+
+B.2. Standard ±99° filtering
+
+Resultado:
+
+    total_test_frames = 12629
+    frames_within_±99° = 12629
+    frames_removed_by_filter = 0
+
+Conclusión:
+
+- El filtro estándar ±99° no cambia BIWI-360.
+- El mal rendimiento no se explica por evaluar poses GT fuera del rango habitual.
+
+B.3. Simple baselines
+
+Validation circular mean pose:
+
+    yaw   = 8.90
+    roll  = -0.13
+    pitch = 13.09
+
+Baselines evaluados:
+
+1. Zero-pose baseline:
+
+    yaw=0, roll=0, pitch=0
+
+2. Validation-mean baseline:
+
+    yaw, roll, pitch = circular mean de validation.
+
+3. Oracle sequence-mean baseline:
+
+    media circular de cada secuencia de test. NO es un método válido, porque usa etiquetas de test; solo sirve como referencia.
+
+Resultados test:
+
+6DRepNet360 raw:
+
+    mae_yaw = 16.9930
+    mae_roll = 21.1325
+    mae_pitch = 29.6633
+    mean_mae = 22.5963
+
+6DRepNet360 + EMA:
+
+    mean_mae = 26.5798
+
+Zero-pose baseline:
+
+    mae_yaw = 24.2832
+    mae_roll = 9.0912
+    mae_pitch = 22.6606
+    mean_mae = 18.6783
+
+Validation-mean baseline:
+
+    mae_yaw = 23.5655
+    mae_roll = 9.0917
+    mae_pitch = 19.9863
+    mean_mae = 17.5478
+
+Oracle sequence-mean:
+
+    mean_mae = 16.3715
+
+Conclusión dura pero importante:
+
+- En MAE global, los baselines constantes ganan al modelo raw.
+- Pero esto es axis-dependent.
+- El modelo gana claramente en yaw.
+- Los baselines ganan porque roll/pitch están muy centrados y el modelo tiene outliers enormes en esos ejes.
+
+B.4. Sensitivity to extreme raw prediction outliers
+
+Frame-level:
+
+All test frames:
+
+    raw_mean_mae = 22.5963
+    smooth_mean_mae = 26.5798
+
+Frames with extreme raw angle:
+
+    num_frames = 659
+    raw_mean_mae = 110.3397
+    smooth_mean_mae = 54.5459
+
+Frames without extreme raw angle:
+
+    num_frames = 11970
+    raw_mean_mae = 17.7656
+    smooth_mean_mae = 25.0402
+
+Temporal:
+
+All pairs:
+
+    raw_jitter = 44.2736
+    smooth_jitter = 4.0921
+
+Pairs affected by extreme raw angle:
+
+    raw_jitter = 152.7398
+    smooth_jitter = 10.4987
+
+Pairs not affected:
+
+    raw_jitter = 33.9471
+    smooth_jitter = 3.4811
+
+Conclusión:
+
+- Los outliers explican una parte enorme del fallo.
+- EMA amortigua muy bien los outliers extremos.
+- Pero incluso sin outliers extremos, raw sigue siendo bastante inestable.
+- En frames normales, EMA empeora el MAE por lag/oversmoothing.
+
+B.5. Where does the model still add value?
+
+Axis-specific comparison on all test frames:
+
+6DRepNet360 raw:
+
+    yaw = 16.9930
+    roll = 21.1325
+    pitch = 29.6633
+    mean = 22.5963
+
+Zero baseline:
+
+    yaw = 24.2832
+    roll = 9.0912
+    pitch = 22.6606
+    mean = 18.6783
+
+Validation-mean baseline:
+
+    yaw = 23.5655
+    roll = 9.0917
+    pitch = 19.9863
+    mean = 17.5478
+
+Best non-oracle method by metric:
+
+    yaw: 6DRepNet360 raw
+    roll: Zero-pose baseline
+    pitch: Validation-mean baseline
+    mean_mae: Validation-mean baseline
+
+Raw model vs validation-mean by rho and angle:
+
+Yaw:
+
+    low rho:    raw improves over val-mean by ≈ 34.3%
+    medium rho: raw improves over val-mean by ≈ 33.7%
+    high rho:   raw improves over val-mean by ≈ 15.7%
+
+Roll/pitch:
+
+    model is worse than validation-mean, especially high rho.
+
+After excluding extreme raw predictions:
+
+Raw model:
+
+    mean_mae = 17.7656
+
+Validation-mean:
+
+    mean_mae = 17.2292
+
+Zero baseline:
+
+    mean_mae = 18.2702
+
+Conclusión matizada:
+
+- El modelo no es inútil.
+- Aporta información útil en yaw, que es el eje más variable/dinámico.
+- El fallo global viene de roll/pitch y outliers.
+- Esto explica por qué visualmente parecía seguir parte de la trayectoria aunque los números globales fueran malos.
+
+================================================================================
+13. APPENDIX C — ROBUST TEMPORAL FILTERING PILOT
+================================================================================
+
+Objetivo:
+
+Probar una modificación motivada por el failure analysis. La guía del proyecto contempla una extensión opcional. Appendix C encaja muy bien ahí.
+
+Idea:
+
+- EMA simple reduce jitter pero empeora MAE.
+- Probar filtros robustos que reduzcan outliers sin destruir la señal útil.
+
+C.1. Funciones
+
+Se definieron funciones para:
+
+- wrap_angle_deg
+- unwrap_angle_sequence_deg
+- rolling_median_1d
+- rolling_mean_1d
+- ema_1d
+- ema_with_jump_clipping_1d
+- apply_temporal_filter_by_sequence
+- add_frame_errors_for_prefix
+- compute_temporal_metrics_for_prefix
+- summarize_candidate
+
+IMPORTANTE: Una recomendación fuerte para el compañero es mover estas funciones a un archivo utils.py o a una sección única de utilidades del notebook para hacerlo más limpio.
+
+C.2. Global robust filter search
+
+Se probaron 48 candidatos:
+
+1. Rolling median:
+
+    causal median w=3,5,7,11
+    centered median w=3,5,7,11
+
+2. Rolling mean:
+
+    causal mean w=3,5,7,11
+    centered mean w=3,5,7,11
+
+3. Median + EMA:
+
+    centered median w=3,5,7 + EMA alpha=0.10,0.20,0.30,0.50
+
+4. EMA clip:
+
+    alpha=0.10,0.20,0.30,0.50,0.70
+    max_jump=5,10,20,40 grados/frame
+
+Criterio:
+
+    balanced_score = mean_mae / raw_val_mae + temporal_motion_error / raw_val_temporal_error
+
+Best global robust candidate selected on validation:
+
+    centered median w=11
+
+Validation:
+
+    mae_yaw = 11.6046
+    mae_roll = 15.6951
+    mae_pitch = 27.6569
+    mean_mae = 18.3189
+    mean_jitter = 9.8316
+    temporal_error = 10.2090
+
+Test:
+
+    mae_yaw = 11.8481
+    mae_roll = 14.2439
+    mae_pitch = 23.7937
+    mean_mae = 16.6286
+    mean_jitter = 7.1413
+    temporal_error = 7.5068
+
+Comparación:
+
+Raw test:
+
+    mean_mae = 22.5963
+    temporal_error = 44.2726
+
+Original EMA:
+
+    mean_mae = 26.5798
+    temporal_error = 4.5547 / 4.5949 según tabla usada
+
+Centered median w=11:
+
+    mean_mae = 16.6286
+    temporal_error = 7.5068
+
+Conclusión:
+
+- Centered median w=11 mejora mucho el MAE y reduce muchísimo el error temporal.
+- No es causal: usa pasado y futuro, por tanto es adecuado para post-procesado offline, no tiempo real.
+
+C.4. Axis-specific robust filtering
+
+Motivación:
+
+Appendix B mostró que el modelo es útil para yaw, pero roll/pitch son muy inestables y los baselines constantes ganan.
+
+Se hizo una búsqueda axis-specific:
+
+Yaw options:
+
+    raw
+    centered_median_w5
+    centered_median_w7
+    centered_median_w11
+
+Roll/pitch options:
+
+    centered_median_w7
+    centered_median_w11
+    centered_median_w11_ema05
+    centered_median_w11_shrink025
+    centered_median_w11_shrink050
+    validation_mean
+
+Número de candidatos:
+
+    144
+
+Validation circular means usados:
+
+    yaw = 8.9016
+    roll = -0.1313
+    pitch = 13.0930
+
+Best axis-specific candidate selected on validation:
+
+    yaw = centered_median_w11
+    roll = validation_mean
+    pitch = validation_mean
+
+Resultados validation:
+
+    mae_yaw = 11.6046
+    mae_roll = 9.3292
+    mae_pitch = 17.9911
+    mean_mae = 12.9750
+    mean_jitter = 1.8835
+    temporal_error = 2.9219
+
+Resultados test:
+
+    mae_yaw = 11.8481
+    mae_roll = 9.0917
+    mae_pitch = 19.9863
+    mean_mae = 13.6420
+    mean_jitter = 1.9510
+    temporal_error = 2.9552
+
+Comparación test:
+
+Raw predictions:
+
+    mean_mae = 22.5963
+    mean_jitter = 44.2736
+    temporal_error = 44.2726
+
+Original EMA alpha=0.05:
+
+    mean_mae = 26.5798
+    mean_jitter = 4.0815
+    temporal_error = 4.5547
+
+Global robust centered median w=11:
+
+    mean_mae = 16.6286
+    mean_jitter = 7.1413
+    temporal_error = 7.5068
+
+Axis-specific robust:
+
+    mean_mae = 13.6420
+    mean_jitter = 1.9510
+    temporal_error = 2.9552
+
+Interpretación honesta:
+
+- Es el mejor resultado numérico.
+- Pero no es un simple filtro temporal aplicado por igual a todos los ángulos.
+- Es un filtro híbrido axis-specific:
+  - yaw se filtra con median centered w=11.
+  - roll y pitch se sustituyen por la media circular de validation.
+- Esto no es test leakage porque las constantes salen de validation, pero sí es una estrategia dataset-specific.
+- Confirma que el modelo aporta información en yaw, pero no en roll/pitch bajo BIWI-360 fisheye.
+
+================================================================================
+14. CONCLUSIONES ACTUALES DEL PROYECTO
+================================================================================
+
+Conclusión principal:
+
+6DRepNet360 zero-shot no es fiable como estimador frame-by-frame directo en BIWI-360. Aunque el pipeline funciona correctamente en AFLW2000-3D normal, la distorsión fisheye de BIWI-360 provoca outliers grandes y mucha inestabilidad temporal.
+
+Conclusiones por eje:
+
+- Yaw: el modelo sí aporta señal útil y supera a baselines constantes.
+- Roll: los baselines constantes ganan porque la distribución está centrada.
+- Pitch: validation-mean baseline gana a raw, aunque el modelo tiene cierta señal en algunos tramos.
+
+Conclusión sobre smoothing:
+
+- EMA simple reduce jitter muchísimo, pero empeora MAE.
+- Median filtering centered w=11 mejora mucho el trade-off accuracy-stability.
+- Axis-specific filtering mejora aún más, pero es una regla híbrida basada en el failure analysis.
+
+Conclusión sobre fisheye:
+
+- El error aumenta con rho.
+- High rho tiene mayor error y más outliers.
+- El mal resultado no se debe a ángulos GT fuera del rango ±99.
+- La causa más probable es domain shift por fisheye y variación geométrica frame-wise.
+
+Conclusión sobre metodología:
+
+- El resultado principal debe ser honesto: raw/EMA tienen limitaciones claras.
+- Appendix A muestra que el pipeline no está roto.
+- Appendix B explica por qué falla.
+- Appendix C propone una mejora motivada por el análisis de fallos.
+
+================================================================================
+15. RECOMENDACIONES PARA QUIEN CONTINÚE EL PROYECTO
+================================================================================
+
+Opinión de Hugo y recomendación técnica:
+
+Hay que revisar todo el notebook bien antes de darlo por cerrado. En particular:
+
+1. Revisar que todas las celdas corren de arriba abajo sin errores.
+2. Revisar nombres de variables y dependencias entre apéndices.
+3. Verificar que no hay duplicados innecesarios de funciones.
+4. Revisar plots para que no haya demasiadas líneas ni figuras confusas.
+5. Revisar que cada tabla tiene interpretación Markdown debajo.
+6. Revisar que todo el notebook está en inglés, con estilo natural y formal.
+7. Revisar que no se usa test para seleccionar hiperparámetros.
+8. Revisar que se distingue claramente entre:
+   - official results,
+   - sensitivity analysis,
+   - optional extension.
+
+Recomendación fuerte:
+
+    Crear un utils.py o una sección “Utility functions” limpia.
+
+Motivo:
+
+El notebook ya tiene muchas funciones repetidas o largas:
+
+- angular_diff_array_deg
+- signed_circular_diff_deg
+- circular_mean_deg
+- wrap_angle_deg
+- unwrap_angle_sequence_deg
+- rolling median/mean
+- temporal metrics
+- filtering functions
+- summary functions
+
+Moverlas a utils.py haría el notebook más legible. En Kaggle se puede hacer creando un archivo en /kaggle/working/utils.py desde una celda, o simplemente agrupándolas al principio en una sección “Utility functions”. Para entrega, quizá es más seguro mantener todo dentro del notebook, pero limpio y agrupado.
+
+================================================================================
+16. PRÓXIMOS PASOS POSIBLES
+================================================================================
+
+16.1. Fine-tuning de 6DRepNet360 en BIWI-360
+
+Esta es una idea favorable y probablemente la mejora más natural.
+
+Qué habría que hacer:
+
+- Definir train/validation/test por secuencias.
+- No usar test para entrenar ni seleccionar hiperparámetros.
+- Cargar 6DRepNet360 pretrained.
+- Congelar o no congelar backbone según recursos.
+- Entrenar una cabeza o fine-tuning parcial con BIWI-360.
+- Usar loss sobre rotación si se puede reconstruir matriz, o MAE/MSE sobre Euler como baseline simple.
+- Evaluar en test con las mismas métricas:
+  - MAE yaw/roll/pitch
+  - mean MAE
+  - RMSE
+  - jitter
+  - temporal motion error
+- Comparar contra:
+  - zero-shot raw
+  - original EMA
+  - global robust median
+  - axis-specific robust
+  - baselines zero/validation-mean
+
+Riesgos:
+
+- Puede tardar.
+- Hay que evitar leakage por secuencias.
+- BIWI-360 no tiene muchísimos sujetos; fine-tuning puede sobreajustar.
+- Si se entrena con imágenes distorsionadas, habrá que justificar si el objetivo sigue siendo domain adaptation.
+
+Por qué tiene sentido:
+
+El sanity check mostró que el modelo funciona en no-fisheye. Luego el fallo es por domain shift. Fine-tuning sobre fisheye es una respuesta directa al problema.
+
+16.2. Modelo que use rho/theta explícitamente
+
+También es una idea favorable y probablemente más conectada con el dataset HPE-360.
+
+El dataset incluye:
+
+    rho, theta
+
+Estos parámetros explican cómo se generó la distorsión fisheye.
+
+Ideas posibles:
+
+1. Concatenar rho/theta al embedding antes de la cabeza de regresión.
+2. Entrenar una pequeña corrección residual:
+
+       corrected_pose = raw_pose + f(raw_pose, rho, theta)
+
+3. Entrenar un calibrador simple por eje usando validation/train:
+
+       yaw_corr, roll_corr, pitch_corr = model(pred_yaw, pred_roll, pred_pitch, rho, theta)
+
+4. Hacer análisis por bins de rho/theta y ajustar correcciones.
+5. Usar rho/theta para escoger filtro temporal más agresivo cuando rho sea alto.
+
+Por qué tiene sentido:
+
+HPE-360 se diseñó precisamente para fisheye y contiene metadata de posición radial. Si el modelo no sabe dónde estaba la cara respecto al centro fisheye, puede confundir deformación geométrica con pose real.
+
+16.3. Entrenar o probar otro modelo fisheye-aware
+
+Buscar modelos relacionados con:
+
+- Location-guided Head Pose Estimation for Fisheye Image.
+- Fisheye head pose estimation.
+- HPE-360.
+- Head pose estimation with distortion parameters.
+
+Si existe código público del paper HPE-360, sería muy relevante probarlo o al menos citarlo como dirección futura.
+
+16.4. Robust temporal filtering mejorado
+
+El Appendix C ya probó bastante. Pero se podrían probar:
+
+- Median + clipping.
+- Hampel filter para outlier rejection.
+- Kalman filter por eje.
+- Savitzky-Golay centered offline.
+- Confidence-aware filtering si se consigue alguna medida de incertidumbre.
+- Filtro con diferente agresividad según rho.
+
+Pero cuidado: ya no conviene sobrecargar el notebook. Mejor dejar Appendix C como extensión y no convertirlo en otro proyecto entero.
+
+16.5. Evaluación geodésica
+
+Si se conserva la matriz de rotación predicha y se pueden convertir etiquetas GT a matrices, añadir geodesic error sería metodológicamente más fuerte.
+
+Pero no es estrictamente necesario si el notebook ya reporta:
+
+- MAE
+- RMSE
+- jitter
+- temporal motion error
+
+================================================================================
+17. QUÉ PARTES DEBEN QUEDAR COMO RESULTADO PRINCIPAL Y QUÉ PARTES COMO APÉNDICE
+================================================================================
+
+Resultado principal:
+
+1. Dataset BIWI-360.
+2. Zero-shot 6DRepNet360 frame-by-frame.
+3. Raw vs EMA.
+4. Métricas frame-level.
+5. Métricas temporales.
+6. Failure analysis visual.
+7. Main conclusion: EMA reduce jitter pero empeora MAE; fisheye domain shift fuerte.
+
+Appendix A:
+
+    AFLW2000-3D sanity check.
+
+Propósito:
+
+    Demostrar que el pipeline no está roto.
+
+Appendix B:
+
+    Sensitivity analysis and baselines.
+
+Propósito:
+
+    Explicar por qué BIWI-360 falla y matizar que el modelo sí aporta yaw.
+
+Appendix C:
+
+    Robust temporal filtering pilot.
+
+Propósito:
+
+    Extensión opcional motivada por el failure analysis.
+
+Muy importante:
+
+No vender Appendix C como resultado principal benchmark. Es una extensión/pilot. El resultado axis-specific es muy bueno, pero es una regla muy específica del dataset y debe explicarse honestamente.
+
+================================================================================
+18. POSIBLE ESTRUCTURA FINAL DEL NOTEBOOK
+================================================================================
+
+1. Introduction
+2. Research question and hypothesis
+3. Related work summary
+4. Dataset: HPE-360 / BIWI-360
+5. Environment and repository setup
+6. Loading BIWI-360 labels and images
+7. Dataset exploration
+8. Model loading: 6DRepNet360
+9. Inference on BIWI-360
+10. Angle convention diagnostic
+11. Train/validation/test split by sequences
+12. Frame-level metrics
+13. Temporal metrics
+14. EMA smoothing
+15. Raw vs smoothed comparison
+16. Visual failure analysis
+17. Main results summary
+18. Main conclusion / thesis direction
+19. Appendix A: AFLW2000-3D sanity check
+20. Appendix B: BIWI-360 sensitivity analysis and simple baselines
+21. Appendix C: Robust temporal filtering pilot
+
+================================================================================
+19. POSIBLE ESTRUCTURA DEL INFORME FINAL
+================================================================================
+
+1. Problem statement
+
+- Head pose estimation in video.
+- Fisheye distortion as domain shift.
+- Temporal stability issue.
+
+2. Related work
+
+- 6DRepNet / 6DRepNet360.
+- Rotation representation and geodesic loss.
+- Fisheye HPE / HPE-360.
+- Temporal post-processing.
+
+3. Architecture selection
+
+- Selected: 6DRepNet360.
+- Why: 6D continuous rotation representation, geodesic loss, landmark-free, recent full-range extension.
+- Alternative rejected: Euler-regression/binned methods like HopeNet/WHENet, or landmark-based methods.
+- Reason for rejection: less suitable under occlusion/distortion; Euler/bins less geometrically clean.
+
+4. Experimental setup
+
+- BIWI-360.
+- 24 sequences, 15,678 frames.
+- Validation/test split by sequences.
+- Model checkpoint and preprocessing.
+- Metrics.
+
+5. Results
+
+- Raw zero-shot metrics.
+- EMA smoothing metrics.
+- AFLW2000-3D sanity check.
+- Baselines.
+- Robust filtering extension.
+
+6. Failure analysis
+
+- High rho frames.
+- Extreme outliers.
+- Roll/pitch instability.
+- Fisheye variation between frames.
+
+7. Thesis direction
+
+- Fine-tuning or fisheye-aware model.
+- Use rho/theta.
+- Robust temporal model.
+
+8. References
+
+================================================================================
+20. RED FLAGS / COSAS A REVISAR
+================================================================================
+
+1. Que todas las tablas usadas en Markdown coincidan con los outputs reales.
+2. Que no haya confusión entre pitch/yaw/roll en los textos.
+3. Que se mantenga la convención:
+
+    pred_yaw = euler[:,1]
+    pred_roll = euler[:,2]
+    pred_pitch = euler[:,0]
+
+4. Que el filtro centered median se describa como offline, no causal.
+5. Que el axis-specific filter no se venda como método general universal.
+6. Que validation-mean se explique como válido porque usa validation, no test.
+7. Que oracle sequence-mean se marque claramente como no deployable.
+8. Que se diga que los baselines ganan globalmente, pero el modelo gana en yaw.
+9. Que el texto no diga “some papers”; mejor citar concretamente 6DRepNet/6DRepNet360 y protocolo ±99.
+10. Que Appendix A indique que el sanity check no reproduce exactamente el benchmark original del paper.
+11. Que se revise si hay variables que dependen de ejecutar apéndices anteriores.
+12. Que se limpie el notebook antes de entrega.
+
+================================================================================
+21. OPINIÓN FINAL SOBRE LAS IDEAS PROPUESTAS
+================================================================================
+
+La opinión técnica es favorable a las ideas propuestas:
+
+1. Revisar todo bien:
+
+    Sí, imprescindible. El notebook ya tiene muchos experimentos y hay que asegurar coherencia narrativa y reproducibilidad.
+
+2. Hacer un utils con funciones:
+
+    Sí, muy recomendable. Hará el notebook más limpio y reducirá errores. Si no se quiere crear archivo externo, al menos agrupar todas las funciones en una sección única al principio.
+
+3. Fine-tuning del modelo:
+
+    Sí, probablemente es la mejora más natural. Los resultados indican un domain shift muy fuerte: el modelo funciona en AFLW2000-3D normal pero falla en BIWI-360 fisheye. Fine-tuning sobre datos fisheye ataca directamente ese problema.
+
+4. Probar otro modelo que tenga en cuenta los parámetros de ojo de pez:
+
+    Sí, muy recomendable. HPE-360 incluye rho/theta por una razón. Un modelo o calibrador que use esos parámetros podría distinguir mejor deformación fisheye de pose real. Esta dirección está muy alineada con el dataset.
+
+5. No sobrecargar más el notebook actual:
+
+    También importante. Appendix C ya es una extensión bastante completa. Para el informe, conviene seleccionar bien qué contar y no meter demasiadas tablas.
+
+================================================================================
+22. RESUMEN EJECUTIVO PARA ADRIÁN
+================================================================================
+
+El proyecto actual evalúa 6DRepNet360 zero-shot sobre BIWI-360, una versión fisheye de BIWI. El modelo funciona razonablemente en AFLW2000-3D no fisheye, así que el pipeline no está roto. Sin embargo, en BIWI-360 el rendimiento raw es malo: mean MAE test ≈ 22.60º y jitter ≈ 44.27º/frame. EMA reduce muchísimo el jitter, pero empeora el MAE hasta ≈ 26.58º.
+
+El análisis posterior muestra que el error aumenta con rho, que el filtro ±99° no cambia nada porque todos los frames ya están dentro del rango, y que los baselines constantes ganan en mean MAE global. Pero esto tiene matiz: el modelo sí gana claramente en yaw, que es el eje más dinámico. El fallo global viene de roll/pitch y de outliers extremos.
+
+Se hizo una extensión con filtros robustos. El mejor filtro global fue centered median w=11, con test mean MAE ≈ 16.63º y temporal error ≈ 7.51º. El mejor filtro axis-specific usa centered median w=11 para yaw y validation mean para roll/pitch, logrando test mean MAE ≈ 13.64º y temporal error ≈ 2.96º. Este resultado es bueno pero debe interpretarse como una estrategia híbrida específica motivada por el análisis de fallos, no como un benchmark principal.
+
+Para continuar, lo más razonable es:
+
+1. Revisar y limpiar el notebook.
+2. Agrupar funciones en utils o sección de utilidades.
+3. Preparar el informe final con una narrativa honesta.
+4. Si hay tiempo, probar fine-tuning o un modelo/calibrador que use rho/theta.
+
+FIN DEL DOCUMENTO
